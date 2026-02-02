@@ -1,0 +1,7 @@
+{
+  "name": "Karrot Interior Portfolio CMS",
+  "description": "A modern, warm interior design portfolio website with a full-featured admin CMS for blog-style project management, inspired by Karrot's clean aesthetics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
