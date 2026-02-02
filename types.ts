@@ -10,18 +10,19 @@ export interface Project {
   gallery: string[];
   createdAt: number;
   status: 'draft' | 'published';
+  order: number; // 전시 순서 (낮을수록 앞에 노출)
 }
 
 export interface Inquiry {
   id: string;
-  projectId?: string; // 선택사항 (특정 프로젝트 보고 신청 시)
+  projectId?: string;
   projectTitle?: string;
   name: string;
   phone: string;
   message: string;
-  budget?: string; // 예산 범위
-  desiredDate?: string; // 시공 희망일
-  category?: string; // 공간 유형
+  budget?: string;
+  desiredDate?: string;
+  category?: string;
   createdAt: number;
 }
 

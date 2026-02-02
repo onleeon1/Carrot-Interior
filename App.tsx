@@ -57,12 +57,18 @@ const App: React.FC = () => {
         if (!text) throw new Error('Empty response from server');
         const result = JSON.parse(text);
         if (result && typeof result === 'object' && Array.isArray(result.projects)) {
-          if (result.projects.length === 0 && INITIAL_PROJECTS.length > 0) {
+          // 데이터 보정: order 속성이 없는 구형 데이터 처리
+          const sanitizedProjects = result.projects.map((p: any, idx: number) => ({
+            ...p,
+            order: typeof p.order === 'number' ? p.order : idx + 1
+          }));
+
+          if (sanitizedProjects.length === 0 && INITIAL_PROJECTS.length > 0) {
             const initialData: AppData = { projects: INITIAL_PROJECTS, inquiries: [] };
             setData(initialData);
             saveDataToServer(initialData);
           } else {
-            setData(result);
+            setData({ ...result, projects: sanitizedProjects });
           }
         } else {
           setData({ projects: INITIAL_PROJECTS, inquiries: [] });
@@ -148,12 +154,17 @@ const App: React.FC = () => {
     setIsDetailOpen(false);
   };
 
+  // 정렬된 프로젝트 리스트 (order 순)
+  const sortedProjects = useMemo(() => {
+    return [...data.projects].sort((a, b) => a.order - b.order);
+  }, [data.projects]);
+
   const filteredProjects = useMemo(() => {
-    const published = data.projects.filter(p => p.status === 'published');
+    const published = sortedProjects.filter(p => p.status === 'published');
     if (activeCategory === '전체') return published;
     const catMap: Record<string, string> = { '아파트': 'Apartment', '빌라': 'Villa', '상가': 'Commercial', '오피스': 'Office' };
     return published.filter(p => p.category === catMap[activeCategory]);
-  }, [data.projects, activeCategory]);
+  }, [sortedProjects, activeCategory]);
 
   if (isLoading) {
     return (
@@ -433,11 +444,18 @@ const App: React.FC = () => {
       {/* Admin, Login Panels */}
       {isAdminOpen && (
         <AdminPanel 
-          projects={data.projects} inquiries={data.inquiries} 
-          onAdd={p => { const n = { ...data, projects: [p, ...data.projects] }; setData(n); saveDataToServer(n); }}
+          projects={sortedProjects} 
+          inquiries={data.inquiries} 
+          onAdd={p => { 
+            const maxOrder = Math.max(0, ...data.projects.map(pj => pj.order));
+            const n = { ...data, projects: [{ ...p, order: maxOrder + 1 }, ...data.projects] }; 
+            setData(n); 
+            saveDataToServer(n); 
+          }}
           onUpdate={p => { const n = { ...data, projects: data.projects.map(pj => pj.id === p.id ? p : pj) }; setData(n); saveDataToServer(n); }}
           onDelete={id => { const n = { ...data, projects: data.projects.filter(p => p.id !== id) }; setData(n); saveDataToServer(n); }}
           onImport={ps => { const n = { ...data, projects: ps }; setData(n); saveDataToServer(n); }}
+          onReorder={newProjects => { const n = { ...data, projects: newProjects }; setData(n); saveDataToServer(n); }}
           onDeleteInquiry={id => { const n = { ...data, inquiries: data.inquiries.filter(i => i.id !== id) }; setData(n); saveDataToServer(n); }}
           onClose={() => setIsAdminOpen(false)}
         />
@@ -445,7 +463,7 @@ const App: React.FC = () => {
 
       {showLoginModal && (
         <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-[32px] p-8 shadow-2xl">
+          <div className="bg-white w-full max-sm rounded-[32px] p-8 shadow-2xl">
             <h3 className="text-xl font-black text-gray-900 mb-6 text-center">관리자 로그인</h3>
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <input autoFocus type="password" className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-black text-gray-900 text-center" placeholder="비밀번호" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />

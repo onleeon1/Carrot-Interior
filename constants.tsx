@@ -33,6 +33,7 @@ export const INITIAL_PROJECTS: Project[] = [
       'https://images.unsplash.com/photo-1600121848594-d8644e57abab?auto=format&fit=crop&q=80&w=1200'
     ],
     createdAt: Date.now() - 1000000,
-    status: 'published'
+    status: 'published',
+    order: 1
   }
 ];

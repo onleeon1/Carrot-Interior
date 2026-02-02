@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { Project, Inquiry } from '../types';
 import { CATEGORY_LABELS } from '../constants';
-import { Plus, Edit3, Trash2, Eye, Layout, FileText, ChevronLeft, Upload, Download, Database, RefreshCw, Phone, Calendar, ArrowRight, User, Wallet, Home } from 'lucide-react';
+import { Plus, Edit3, Trash2, Eye, Layout, FileText, ChevronLeft, Upload, Download, RefreshCw, Phone, Calendar, ArrowRight, User, Wallet, Home, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface AdminPanelProps {
   projects: Project[];
@@ -11,11 +11,12 @@ interface AdminPanelProps {
   onUpdate: (project: Project) => void;
   onDelete: (id: string) => void;
   onImport: (projects: Project[]) => void;
+  onReorder: (projects: Project[]) => void;
   onDeleteInquiry: (id: string) => void;
   onClose: () => void;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onAdd, onUpdate, onDelete, onImport, onDeleteInquiry, onClose }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onAdd, onUpdate, onDelete, onImport, onReorder, onDeleteInquiry, onClose }) => {
   const [activeTab, setActiveTab] = useState<'portfolio' | 'inquiries'>('portfolio');
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -35,6 +36,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
   };
 
   const handleNew = () => {
+    const maxOrder = Math.max(0, ...projects.map(p => p.order));
     const newProj: Project = {
       id: Math.random().toString(36).substr(2, 9),
       title: '',
@@ -45,9 +47,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
       mainImage: '',
       gallery: [],
       createdAt: Date.now(),
-      status: 'draft'
+      status: 'draft',
+      order: maxOrder + 1
     };
     setEditingProject(newProj);
+  };
+
+  const handleMove = (index: number, direction: 'up' | 'down') => {
+    const newProjects = [...projects];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    
+    if (targetIndex < 0 || targetIndex >= newProjects.length) return;
+
+    // Swap order values
+    const tempOrder = newProjects[index].order;
+    newProjects[index].order = newProjects[targetIndex].order;
+    newProjects[targetIndex].order = tempOrder;
+
+    // Sort to keep local state clean and notify parent
+    onReorder(newProjects.sort((a, b) => a.order - b.order));
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isGallery: boolean = false) => {
@@ -66,8 +84,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
 
     try {
       if (isGallery) {
-        // 다중 파일 처리
-        // Fix: Explicitly cast Array.from(files) result as File[] to resolve 'unknown' inference error in some TS environments
         const fileList = Array.from(files) as File[];
         const base64Images = await Promise.all(fileList.map(file => readAsDataURL(file)));
         setEditingProject({
@@ -75,7 +91,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
           gallery: [...editingProject.gallery, ...base64Images]
         });
       } else {
-        // 단일 파일 (대표 이미지) 처리
         const base64 = await readAsDataURL(files[0]);
         setEditingProject({ ...editingProject, mainImage: base64 });
       }
@@ -84,7 +99,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
       alert("이미지 처리 중 오류가 발생했습니다.");
     } finally {
       setIsUploading(false);
-      e.target.value = ''; // 같은 파일 다시 올릴 수 있게 리셋
+      e.target.value = '';
     }
   };
 
@@ -195,7 +210,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
                 <div className="flex justify-between items-center mb-10">
                   <div>
                     <h2 className="text-3xl font-bold text-gray-900">포트폴리오 리스트</h2>
-                    <p className="text-gray-500 mt-1">총 {projects.length}개의 프로젝트가 서버에 저장되어 있습니다.</p>
+                    <p className="text-gray-500 mt-1">총 {projects.length}개의 프로젝트가 등록되어 있습니다. (전시 순서대로 표시)</p>
                   </div>
                   <button 
                     onClick={handleNew}
@@ -206,9 +221,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
                 </div>
 
                 <div className="grid gap-4">
-                  {projects.map(p => (
+                  {projects.map((p, index) => (
                     <div key={p.id} className="bg-white p-5 rounded-2xl border border-gray-100 flex items-center justify-between group hover:shadow-xl hover:shadow-gray-100 transition-all">
                       <div className="flex items-center gap-4">
+                        <div className="flex flex-col gap-1">
+                           <button 
+                             disabled={index === 0}
+                             onClick={() => handleMove(index, 'up')}
+                             className={`p-1 rounded-md transition-colors ${index === 0 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100 hover:text-orange-500'}`}
+                           >
+                             <ChevronUp size={18} />
+                           </button>
+                           <button 
+                             disabled={index === projects.length - 1}
+                             onClick={() => handleMove(index, 'down')}
+                             className={`p-1 rounded-md transition-colors ${index === projects.length - 1 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100 hover:text-orange-500'}`}
+                           >
+                             <ChevronDown size={18} />
+                           </button>
+                        </div>
                         <img src={p.mainImage || 'https://picsum.photos/100/100'} className="w-16 h-16 rounded-xl object-cover bg-gray-100" />
                         <div>
                           <h3 className="font-bold text-gray-900 group-hover:text-[#ff8a3d] transition-colors">{p.title || '제목 없음'}</h3>
@@ -217,6 +248,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
                             <span className={`px-2 py-0.5 rounded-md ${p.status === 'published' ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'}`}>
                               {p.status === 'published' ? '게시됨' : '초안'}
                             </span>
+                            <span className="px-2 py-0.5 bg-gray-50 text-gray-400 rounded-md">순번: {p.order}</span>
                           </div>
                         </div>
                       </div>
