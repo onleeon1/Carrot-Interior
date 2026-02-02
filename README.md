@@ -1,20 +1,36 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+# 🥕 당근 인테리어 - 포트폴리오 관리 CMS
 
-This contains everything you need to run your app locally.
+당근마켓의 따뜻하고 깔끔한 UI 디자인을 모티브로 제작된 **하이엔드 인테리어 포트폴리오 웹사이트**입니다.  
+관리자 페이지를 통해 직접 시공 사례를 블로그처럼 올리고, 고객의 상담 신청 내역을 관리할 수 있습니다.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1REtpJ5k1S2eXelw2Etar20LdgfqFPHMv
+## ✨ 주요 기능
 
-## Run Locally
+- **포트폴리오 갤러리**: 카테고리별(아파트, 빌라, 상가 등) 시공 사례 필터링 및 상세 보기.
+- **블로그형 상세 페이지**: 시공 현장 스토리와 고화질 갤러리 이미지를 제공하는 고급스러운 레이아웃.
+- **실시간 상담 신청**: 각 포트폴리오 하단 및 메인에서 즉시 상담 신청 가능.
+- **CMS 관리자 대시보드**:
+  - 프로젝트 등록/수정/삭제 (이미지 업로드 지원)
+  - 상담 신청 내역 확인 및 삭제
+  - 데이터 백업 및 복구 (JSON 파일 내보내기/가져오기)
+- **반응형 디자인**: 모바일, 태블릿, PC 모든 환경 최적화.
 
-**Prerequisites:**  Node.js
+## 🛠 기술 스택
 
+- **Frontend**: React (ESM), Tailwind CSS, Lucide Icons
+- **Backend**: PHP (데이터 처리 및 API)
+- **Database**: JSON-based Flat File System (별도의 DB 설치 불필요)
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 🚀 설치 및 실행 방법 (로컬 환경)
+
+본 프로젝트는 PHP 기반이므로 서버 환경이 필요합니다.
+
+1.  **XAMPP** 또는 **WAMP**를 설치합니다.
+2.  웹 서버의 루트 폴더(예: `C:/xampp/htdocs/`)에 이 프로젝트 폴더를 복사합니다.
+3.  브라우저에서 `http://localhost/폴더명/index.html`로 접속합니다.
+4.  **관리자 비밀번호**: `catcat123`
+
+## ⚠️ 주의 사항
+
+- **GitHub Pages 호환성**: GitHub Pages는 정적 호환성만 지원하므로, PHP 파일인 `api.php`가 작동하지 않습니다. 실제 서비스를 위해서는 PHP 지원 호스팅(닷홈, iwinv, AWS 등)이 필요합니다.
+- **권한 설정**: 서버 환경에서 `data.json` 파일에 쓰기 권한(Permission 775/777)이 있는지 확인하세요.
