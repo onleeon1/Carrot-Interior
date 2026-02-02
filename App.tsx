@@ -92,7 +92,13 @@ const App: React.FC = () => {
         body: JSON.stringify(newData),
       });
       const resData = await response.json();
-      if (!resData.success) alert("데이터 저장 실패: " + (resData.error || "권한 확인 필요"));
+      if (resData.success) {
+        // 서버에서 이미지를 파일로 변환했으므로 최신 상태로 다시 불러오기 (필요 시)
+        // 여기서는 편의상 로그만 남기고 다음 로드 시 파일 경로로 바뀐 것을 확인하게 함
+        console.log("Data saved and optimized on server");
+      } else {
+        alert("데이터 저장 실패: " + (resData.error || "권한 확인 필요"));
+      }
     } catch (e) {
       console.error("통신 오류:", e);
     }
