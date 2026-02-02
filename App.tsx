@@ -4,7 +4,7 @@ import { Project, Inquiry, AppData } from './types.ts';
 import { INITIAL_PROJECTS } from './constants.tsx';
 import { Layout } from './components/Layout.tsx';
 import { AdminPanel } from './components/AdminPanel.tsx';
-import { X, Loader2, Phone, User, MessageSquare, Send, Lock, ChevronRight, ArrowRight, Layout as LayoutIcon, Calendar, Wallet, Home, AlertCircle, MapPin, Maximize, ArrowLeft } from 'lucide-react';
+import { X, Loader2, Phone, User, MessageSquare, Send, Lock, ChevronRight, ArrowRight, Layout as LayoutIcon, Calendar, Wallet, Home, AlertCircle, MapPin, Maximize, ArrowLeft, ZoomIn } from 'lucide-react';
 
 const App: React.FC = () => {
   const [data, setData] = useState<AppData>({ projects: [], inquiries: [] });
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [showInquiryForm, setShowInquiryForm] = useState(false);
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   
   const [activeCategory, setActiveCategory] = useState('전체');
   
@@ -269,8 +270,11 @@ const App: React.FC = () => {
 
             <div className="flex-grow overflow-y-auto scroll-smooth">
               {/* Hero Image */}
-              <div className="relative h-[50vh] md:h-[60vh] overflow-hidden">
-                <img src={selectedProject.mainImage} alt={selectedProject.title} className="w-full h-full object-cover" />
+              <div 
+                className="relative h-[50vh] md:h-[60vh] overflow-hidden cursor-zoom-in group/hero"
+                onClick={() => setEnlargedImage(selectedProject.mainImage)}
+              >
+                <img src={selectedProject.mainImage} alt={selectedProject.title} className="w-full h-full object-cover transition-transform duration-700 group-hover/hero:scale-105" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-8 md:p-16">
                   <div className="flex items-center gap-2 mb-4">
                     <span className="bg-[#ff8a3d] text-white px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest">{selectedProject.category}</span>
@@ -278,6 +282,11 @@ const App: React.FC = () => {
                   <h2 className="text-3xl md:text-5xl font-black text-white leading-tight max-w-3xl">
                     {selectedProject.title}
                   </h2>
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/hero:opacity-100 transition-opacity">
+                   <div className="bg-white/20 backdrop-blur-md p-4 rounded-full text-white">
+                     <ZoomIn size={32} />
+                   </div>
                 </div>
               </div>
 
@@ -313,11 +322,20 @@ const App: React.FC = () => {
                 {/* Gallery */}
                 <div className="space-y-10">
                    <h3 className="text-2xl font-black text-gray-900 mb-8">Detailed Gallery</h3>
-                   {selectedProject.gallery.map((img, idx) => (
-                     <div key={idx} className="group overflow-hidden rounded-[32px] bg-gray-50">
-                       <img src={img} alt={`Gallery ${idx}`} className="w-full h-auto transition-transform duration-700 group-hover:scale-105" />
-                     </div>
-                   ))}
+                   <div className="grid grid-cols-1 gap-10">
+                     {selectedProject.gallery.map((img, idx) => (
+                       <div 
+                        key={idx} 
+                        className="group overflow-hidden rounded-[32px] bg-gray-50 cursor-zoom-in relative"
+                        onClick={() => setEnlargedImage(img)}
+                       >
+                         <img src={img} alt={`Gallery ${idx}`} className="w-full h-auto transition-transform duration-700 group-hover:scale-105" />
+                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                            <ZoomIn size={48} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                         </div>
+                       </div>
+                     ))}
+                   </div>
                 </div>
 
                 {/* Call to Action */}
@@ -339,6 +357,27 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Enlarged Image Modal (Lightbox) */}
+      {enlargedImage && (
+        <div 
+          className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 md:p-12 animate-in fade-in duration-300"
+          onClick={() => setEnlargedImage(null)}
+        >
+          <button 
+            className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors"
+            onClick={() => setEnlargedImage(null)}
+          >
+            <X size={40} />
+          </button>
+          <img 
+            src={enlargedImage} 
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300" 
+            alt="확대 이미지"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
 
@@ -391,7 +430,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Admin, Login Panels (Same as before) */}
+      {/* Admin, Login Panels */}
       {isAdminOpen && (
         <AdminPanel 
           projects={data.projects} inquiries={data.inquiries} 
