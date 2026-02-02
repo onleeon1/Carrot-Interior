@@ -1,106 +1,124 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Project, Inquiry, AppData } from './types.ts';
+import { Project, Inquiry, AppData, GithubConfig } from './types.ts';
 import { INITIAL_PROJECTS } from './constants.tsx';
 import { Layout } from './components/Layout.tsx';
 import { AdminPanel } from './components/AdminPanel.tsx';
-import { X, Loader2, Phone, User, MessageSquare, Send, Lock, ChevronRight, ArrowRight, Layout as LayoutIcon, Calendar, Wallet, Home, AlertCircle, MapPin, Maximize, ArrowLeft, ZoomIn } from 'lucide-react';
+import { X, Loader2, ChevronRight, ArrowRight, AlertCircle, ArrowLeft, Github, CheckCircle2 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [data, setData] = useState<AppData>({ projects: [], inquiries: [] });
   const [isLoading, setIsLoading] = useState(true);
-  const [isProtocolError, setIsProtocolError] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   
-  // 뷰 제어 상태
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [showInquiryForm, setShowInquiryForm] = useState(false);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
-  
   const [activeCategory, setActiveCategory] = useState('전체');
   
   const [inquiryInput, setInquiryInput] = useState({ 
-    name: '', 
-    phone: '', 
-    message: '', 
-    budget: '', 
-    desiredDate: '', 
-    category: 'Apartment' 
+    name: '', phone: '', message: '', budget: '', desiredDate: '', category: 'Apartment' 
   });
 
   useEffect(() => {
-    if (window.location.protocol === 'file:') {
-      setIsProtocolError(true);
-    }
     const auth = sessionStorage.getItem('admin_auth');
-    if (auth === 'true') {
-      setIsLoggedIn(true);
-    }
+    if (auth === 'true') setIsLoggedIn(true);
+    loadData();
   }, []);
 
-  useEffect(() => {
-    if (isProtocolError) {
+  const loadData = async () => {
+    try {
+      // 캐시 방지를 위해 타임스탬프 추가 및 no-cache 헤더 설정
+      const response = await fetch(`./data.json?v=${Date.now()}`, { 
+        cache: 'no-store',
+        headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+      });
+      
+      if (!response.ok) throw new Error('데이터 파일을 찾을 수 없습니다.');
+      
+      const result = await response.json();
+      if (result && Array.isArray(result.projects)) {
+        setData(result);
+      }
+    } catch (e) {
+      console.warn("저장소에 data.json이 없거나 로드에 실패하여 기본 데이터를 사용합니다.");
       setData({ projects: INITIAL_PROJECTS, inquiries: [] });
+    } finally {
       setIsLoading(false);
+    }
+  };
+
+  // 대용량 유니코드 문자열(이미지 포함 JSON)을 안전하게 Base64로 인코딩하는 함수
+  const safeBtoa = (str: string) => {
+    try {
+      return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      }));
+    } catch (e) {
+      console.error("인코딩 오류:", e);
+      return btoa(str);
+    }
+  };
+
+  const saveToGithub = async (newData: AppData, config: GithubConfig) => {
+    if (!config.token || !config.owner || !config.repo) {
+      alert("GitHub 설정을 먼저 완료해주세요.");
       return;
     }
 
-    const loadData = async () => {
-      try {
-        const response = await fetch('./api.php', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Network response was not ok');
-        const text = await response.text();
-        if (!text) throw new Error('Empty response from server');
-        const result = JSON.parse(text);
-        if (result && typeof result === 'object' && Array.isArray(result.projects)) {
-          // 데이터 보정: order 속성이 없는 구형 데이터 처리
-          const sanitizedProjects = result.projects.map((p: any, idx: number) => ({
-            ...p,
-            order: typeof p.order === 'number' ? p.order : idx + 1
-          }));
-
-          if (sanitizedProjects.length === 0 && INITIAL_PROJECTS.length > 0) {
-            const initialData: AppData = { projects: INITIAL_PROJECTS, inquiries: [] };
-            setData(initialData);
-            saveDataToServer(initialData);
-          } else {
-            setData({ ...result, projects: sanitizedProjects });
-          }
-        } else {
-          setData({ projects: INITIAL_PROJECTS, inquiries: [] });
-        }
-      } catch (e) {
-        console.error("PHP 서버 연결 실패:", e);
-        setData({ projects: INITIAL_PROJECTS, inquiries: [] });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadData();
-  }, [isProtocolError]);
-
-  const saveDataToServer = async (newData: AppData) => {
-    if (isProtocolError) return;
+    setIsSaving(true);
     try {
-      const response = await fetch('./api.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newData),
+      // 1. 현재 파일의 SHA 가져오기
+      const getRes = await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/contents/data.json?ref=${config.branch}`, {
+        headers: { 
+          'Authorization': `token ${config.token}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
       });
-      const resData = await response.json();
-      if (resData.success) {
-        // 서버에서 이미지를 파일로 변환했으므로 최신 상태로 다시 불러오기 (필요 시)
-        // 여기서는 편의상 로그만 남기고 다음 로드 시 파일 경로로 바뀐 것을 확인하게 함
-        console.log("Data saved and optimized on server");
-      } else {
-        alert("데이터 저장 실패: " + (resData.error || "권한 확인 필요"));
+      
+      let sha = "";
+      if (getRes.ok) {
+        const fileData = await getRes.json();
+        sha = fileData.sha;
       }
-    } catch (e) {
-      console.error("통신 오류:", e);
+
+      // 2. 데이터 인코딩 및 전송
+      const jsonString = JSON.stringify(newData, null, 2);
+      const content = safeBtoa(jsonString);
+
+      const putRes = await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/contents/data.json`, {
+        method: 'PUT',
+        headers: { 
+          'Authorization': `token ${config.token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        body: JSON.stringify({
+          message: 'Update Portfolio: ' + new Date().toLocaleString() + ' 🥕',
+          content: content,
+          sha: sha || undefined,
+          branch: config.branch
+        })
+      });
+
+      if (putRes.ok) {
+        alert("🎉 배포 완료! 1~2분 뒤 사이트에 반영됩니다. (저장소의 data.json이 업데이트되었습니다)");
+        setData(newData);
+      } else {
+        const err = await putRes.json();
+        throw new Error(err.message || "GitHub API 전송 실패");
+      }
+    } catch (e: any) {
+      alert("배포 중 오류: " + e.message);
+      console.error(e);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -128,39 +146,18 @@ const App: React.FC = () => {
     const newInquiry: Inquiry = {
       id: Math.random().toString(36).substr(2, 9),
       projectId: selectedProject?.id,
-      projectTitle: selectedProject ? selectedProject.title : '전역 상담 신청',
+      projectTitle: selectedProject ? selectedProject.title : '일반 상담',
       name: inquiryInput.name,
       phone: inquiryInput.phone,
       message: inquiryInput.message,
-      budget: inquiryInput.budget,
-      desiredDate: inquiryInput.desiredDate,
-      category: inquiryInput.category,
       createdAt: Date.now(),
     };
     const newData = { ...data, inquiries: [newInquiry, ...data.inquiries] };
     setData(newData);
-    saveDataToServer(newData);
-    
-    alert('상담 신청이 완료되었습니다!');
-    setShowInquiryForm(false);
-    setIsDetailOpen(false);
-    setSelectedProject(null);
-    setInquiryInput({ name: '', phone: '', message: '', budget: '', desiredDate: '', category: 'Apartment' });
-  };
-
-  const openProjectDetail = (p: Project) => {
-    setSelectedProject(p);
-    setIsDetailOpen(true);
+    alert('상담 내역이 임시 저장되었습니다. 관리자 페이지에서 [GitHub에 배포]를 눌러야 최종 저장됩니다.');
     setShowInquiryForm(false);
   };
 
-  const openGlobalInquiry = () => {
-    setSelectedProject(null);
-    setShowInquiryForm(true);
-    setIsDetailOpen(false);
-  };
-
-  // 정렬된 프로젝트 리스트 (order 순)
   const sortedProjects = useMemo(() => {
     return [...data.projects].sort((a, b) => a.order - b.order);
   }, [data.projects]);
@@ -177,7 +174,7 @@ const App: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-[#f8f9fa]">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-[#ff8a3d] animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 font-medium">포트폴리오를 불러오는 중...</p>
+          <p className="text-gray-500 font-bold">포트폴리오 로딩 중...</p>
         </div>
       </div>
     );
@@ -185,14 +182,7 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-[#f8f9fa] min-h-screen text-gray-900">
-      {isProtocolError && (
-        <div className="bg-orange-600 text-white px-4 py-2 flex items-center justify-center gap-2 text-sm font-bold sticky top-0 z-[200]">
-          <AlertCircle size={16} />
-          주의: 현재 서버 없이 파일을 직접 열었습니다. 미리보기는 가능하나 데이터 저장 및 관리는 작동하지 않습니다. (PHP 서버 필요)
-        </div>
-      )}
-      
-      <Layout onAdminClick={handleAdminClick} onInquiryClick={openGlobalInquiry}>
+      <Layout onAdminClick={handleAdminClick} onInquiryClick={() => { setSelectedProject(null); setShowInquiryForm(true); }}>
         {/* Hero Section */}
         <div className="relative overflow-hidden bg-white pb-20 pt-16 sm:pb-32 sm:pt-24">
           <div className="max-w-7xl mx-auto px-6 lg:px-8">
@@ -211,12 +201,6 @@ const App: React.FC = () => {
                   className="rounded-2xl bg-[#ff8a3d] px-8 py-4 text-lg font-bold text-white shadow-xl shadow-orange-100 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
                 >
                   시공 사례 확인하기 <ChevronRight size={20} />
-                </button>
-                <button 
-                  onClick={openGlobalInquiry}
-                  className="text-lg font-bold text-gray-900 flex items-center gap-2 group"
-                >
-                  무료 견적 신청 <ArrowRight className="group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
             </div>
@@ -245,7 +229,7 @@ const App: React.FC = () => {
               <div 
                 key={p.id} 
                 className="group cursor-pointer bg-white rounded-[40px] overflow-hidden shadow-sm hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 border border-gray-50"
-                onClick={() => openProjectDetail(p)}
+                onClick={() => { setSelectedProject(p); setIsDetailOpen(true); }}
               >
                 <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
                   <img 
@@ -271,210 +255,82 @@ const App: React.FC = () => {
         </div>
       </Layout>
 
-      {/* Project Detail Modal */}
-      {isDetailOpen && selectedProject && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-0 md:p-8" onClick={() => setIsDetailOpen(false)}>
-          <div className="bg-white w-full max-w-5xl h-full md:max-h-[95vh] md:rounded-[48px] shadow-2xl overflow-hidden relative flex flex-col animate-in slide-in-from-bottom duration-500" onClick={e => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div className="absolute top-6 left-6 right-6 flex items-center justify-between z-20 pointer-events-none">
-              <button onClick={() => setIsDetailOpen(false)} className="p-3 bg-white/90 backdrop-blur-md rounded-full text-gray-900 shadow-xl pointer-events-auto hover:scale-110 transition-transform">
-                <ArrowLeft size={24} />
-              </button>
-              <button onClick={() => setIsDetailOpen(false)} className="p-3 bg-white/90 backdrop-blur-md rounded-full text-gray-900 shadow-xl pointer-events-auto hover:scale-110 transition-transform">
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="flex-grow overflow-y-auto scroll-smooth">
-              {/* Hero Image */}
-              <div 
-                className="relative h-[50vh] md:h-[60vh] overflow-hidden cursor-zoom-in group/hero"
-                onClick={() => setEnlargedImage(selectedProject.mainImage)}
-              >
-                <img src={selectedProject.mainImage} alt={selectedProject.title} className="w-full h-full object-cover transition-transform duration-700 group-hover/hero:scale-105" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-8 md:p-16">
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="bg-[#ff8a3d] text-white px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest">{selectedProject.category}</span>
-                  </div>
-                  <h2 className="text-3xl md:text-5xl font-black text-white leading-tight max-w-3xl">
-                    {selectedProject.title}
-                  </h2>
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/hero:opacity-100 transition-opacity">
-                   <div className="bg-white/20 backdrop-blur-md p-4 rounded-full text-white">
-                     <ZoomIn size={32} />
-                   </div>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="max-w-4xl mx-auto px-8 py-16">
-                {/* Meta Info */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-16 pb-16 border-b border-gray-100">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Location</p>
-                    <p className="font-bold text-gray-900 flex items-center gap-1"><MapPin size={14} className="text-[#ff8a3d]" /> {selectedProject.location}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Area</p>
-                    <p className="font-bold text-gray-900 flex items-center gap-1"><Maximize size={14} className="text-[#ff8a3d]" /> {selectedProject.area}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</p>
-                    <p className="font-bold text-gray-900">{new Date(selectedProject.createdAt).toLocaleDateString()}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Style</p>
-                    <p className="font-bold text-gray-900">High-End Modern</p>
-                  </div>
-                </div>
-
-                {/* Description */}
-                <div className="mb-20">
-                  <p className="text-lg md:text-xl text-gray-700 leading-[1.8] whitespace-pre-wrap font-medium">
-                    {selectedProject.description}
-                  </p>
-                </div>
-
-                {/* Gallery */}
-                <div className="space-y-10">
-                   <h3 className="text-2xl font-black text-gray-900 mb-8">Detailed Gallery</h3>
-                   <div className="grid grid-cols-1 gap-10">
-                     {selectedProject.gallery.map((img, idx) => (
-                       <div 
-                        key={idx} 
-                        className="group overflow-hidden rounded-[32px] bg-gray-50 cursor-zoom-in relative"
-                        onClick={() => setEnlargedImage(img)}
-                       >
-                         <img src={img} alt={`Gallery ${idx}`} className="w-full h-auto transition-transform duration-700 group-hover:scale-105" />
-                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                            <ZoomIn size={48} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                         </div>
-                       </div>
-                     ))}
-                   </div>
-                </div>
-
-                {/* Call to Action */}
-                <div className="mt-24 p-10 md:p-16 bg-[#ffefe5] rounded-[48px] text-center">
-                   <div className="text-4xl mb-6">🥕</div>
-                   <h3 className="text-2xl md:text-3xl font-black text-gray-900 mb-4">
-                     이런 스타일의 공간을 원하시나요?
-                   </h3>
-                   <p className="text-gray-600 font-bold mb-10 max-w-md mx-auto">
-                     [ {selectedProject.title} ] 디자인을 바탕으로 당신만의 특별한 공간 견적을 제안해 드립니다.
-                   </p>
-                   <button 
-                     onClick={() => setShowInquiryForm(true)}
-                     className="px-12 py-5 bg-[#ff8a3d] text-white rounded-2xl font-black text-xl shadow-xl shadow-orange-200 hover:scale-105 transition-transform"
-                   >
-                     이 스타일로 상담 신청하기
-                   </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Enlarged Image Modal (Lightbox) */}
-      {enlargedImage && (
-        <div 
-          className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 md:p-12 animate-in fade-in duration-300"
-          onClick={() => setEnlargedImage(null)}
-        >
-          <button 
-            className="absolute top-8 right-8 text-white/50 hover:text-white transition-colors"
-            onClick={() => setEnlargedImage(null)}
-          >
-            <X size={40} />
-          </button>
-          <img 
-            src={enlargedImage} 
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300" 
-            alt="확대 이미지"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
-
-      {/* Inquiry Form Modal */}
-      {showInquiryForm && (
-        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowInquiryForm(false)}>
-          <div className="bg-white w-full max-w-2xl h-full max-h-[85vh] rounded-[48px] shadow-2xl overflow-hidden relative flex flex-col animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setShowInquiryForm(false)} className="absolute top-8 right-8 z-10 p-3 bg-white/80 rounded-full text-gray-500 hover:text-gray-900 transition-all shadow-md"><X size={24} /></button>
-            <div className="flex-grow overflow-y-auto p-10 md:p-16">
-              <div className="text-center mb-10">
-                <div className="text-4xl mb-4">🥕</div>
-                <h2 className="text-3xl font-black mb-2">{selectedProject ? '시공 상담 신청' : '인테리어 상담 신청'}</h2>
-                <p className="text-gray-500 font-bold">{selectedProject ? `[${selectedProject.title}] 관련 문의` : '당근 인테리어가 당신의 공간을 디자인합니다.'}</p>
-              </div>
-              <form onSubmit={handleInquirySubmit} className="space-y-6">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase pl-1">성함</label>
-                    <input required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="성함" value={inquiryInput.name} onChange={e => setInquiryInput({...inquiryInput, name: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase pl-1">연락처</label>
-                    <input required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="연락처" value={inquiryInput.phone} onChange={e => setInquiryInput({...inquiryInput, phone: e.target.value})} />
-                  </div>
-                </div>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase pl-1">공간 유형</label>
-                    <select className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 outline-none focus:ring-2 focus:ring-[#ff8a3d]" value={inquiryInput.category} onChange={e => setInquiryInput({...inquiryInput, category: e.target.value})}>
-                      <option value="Apartment">아파트</option><option value="Villa">빌라/주택</option><option value="Commercial">상가</option><option value="Office">오피스</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase pl-1">시공 희망일</label>
-                    <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="예: 12월 말" value={inquiryInput.desiredDate} onChange={e => setInquiryInput({...inquiryInput, desiredDate: e.target.value})} />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase pl-1">예상 예산</label>
-                  <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="예: 3,000만원 내외" value={inquiryInput.budget} onChange={e => setInquiryInput({...inquiryInput, budget: e.target.value})} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase pl-1">문의 상세 내용</label>
-                  <textarea className="w-full p-4 h-32 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-900 resize-none outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="궁금하신 점을 남겨주세요." value={inquiryInput.message} onChange={e => setInquiryInput({...inquiryInput, message: e.target.value})} />
-                </div>
-                <button type="submit" className="w-full py-5 bg-[#ff8a3d] text-white rounded-2xl font-black text-xl hover:bg-[#e67e35] shadow-xl transition-all active:scale-95">상담 신청하기</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Admin, Login Panels */}
       {isAdminOpen && (
         <AdminPanel 
           projects={sortedProjects} 
           inquiries={data.inquiries} 
-          onAdd={p => { 
-            const maxOrder = Math.max(0, ...data.projects.map(pj => pj.order));
-            const n = { ...data, projects: [{ ...p, order: maxOrder + 1 }, ...data.projects] }; 
-            setData(n); 
-            saveDataToServer(n); 
-          }}
-          onUpdate={p => { const n = { ...data, projects: data.projects.map(pj => pj.id === p.id ? p : pj) }; setData(n); saveDataToServer(n); }}
-          onDelete={id => { const n = { ...data, projects: data.projects.filter(p => p.id !== id) }; setData(n); saveDataToServer(n); }}
-          onImport={ps => { const n = { ...data, projects: ps }; setData(n); saveDataToServer(n); }}
-          onReorder={newProjects => { const n = { ...data, projects: newProjects }; setData(n); saveDataToServer(n); }}
-          onDeleteInquiry={id => { const n = { ...data, inquiries: data.inquiries.filter(i => i.id !== id) }; setData(n); saveDataToServer(n); }}
+          isSaving={isSaving}
+          onSaveAll={(newData, githubConfig) => saveToGithub(newData, githubConfig)}
           onClose={() => setIsAdminOpen(false)}
         />
       )}
 
+      {/* Project Detail Modal */}
+      {isDetailOpen && selectedProject && (
+        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-0 md:p-8" onClick={() => setIsDetailOpen(false)}>
+           <div className="bg-white w-full max-w-5xl h-full md:max-h-[95vh] md:rounded-[48px] shadow-2xl overflow-hidden relative flex flex-col animate-in slide-in-from-bottom duration-500" onClick={e => e.stopPropagation()}>
+             <div className="absolute top-6 left-6 right-6 flex items-center justify-between z-20 pointer-events-none">
+                <button onClick={() => setIsDetailOpen(false)} className="p-3 bg-white/90 backdrop-blur-md rounded-full text-gray-900 shadow-xl pointer-events-auto hover:scale-110 transition-transform"><ArrowLeft size={24} /></button>
+                <button onClick={() => setIsDetailOpen(false)} className="p-3 bg-white/90 backdrop-blur-md rounded-full text-gray-900 shadow-xl pointer-events-auto hover:scale-110 transition-transform"><X size={24} /></button>
+             </div>
+             <div className="flex-grow overflow-y-auto scroll-smooth">
+               <div className="h-[50vh] md:h-[60vh] relative group cursor-zoom-in" onClick={() => setEnlargedImage(selectedProject.mainImage)}>
+                 <img src={selectedProject.mainImage} className="w-full h-full object-cover" />
+                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 flex flex-col justify-end p-8 md:p-16">
+                   <h2 className="text-3xl md:text-5xl font-black text-white leading-tight">{selectedProject.title}</h2>
+                 </div>
+               </div>
+               <div className="max-w-4xl mx-auto px-8 py-16">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-16 pb-16 border-b border-gray-100">
+                    <div className="space-y-1"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Location</p><p className="font-bold text-gray-900">{selectedProject.location}</p></div>
+                    <div className="space-y-1"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Area</p><p className="font-bold text-gray-900">{selectedProject.area}</p></div>
+                    <div className="space-y-1"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Category</p><p className="font-bold text-gray-900">{selectedProject.category}</p></div>
+                    <div className="space-y-1"><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Date</p><p className="font-bold text-gray-900">{new Date(selectedProject.createdAt).toLocaleDateString()}</p></div>
+                  </div>
+                  <p className="text-lg md:text-xl text-gray-700 leading-relaxed whitespace-pre-wrap mb-20 font-medium">{selectedProject.description}</p>
+                  <div className="grid grid-cols-1 gap-10">
+                    {selectedProject.gallery.map((img, i) => (
+                      <div key={i} className="group overflow-hidden rounded-[32px] bg-gray-50 cursor-zoom-in" onClick={() => setEnlargedImage(img)}>
+                        <img src={img} className="w-full h-auto transition-transform duration-700 group-hover:scale-105 shadow-md" />
+                      </div>
+                    ))}
+                  </div>
+               </div>
+             </div>
+           </div>
+        </div>
+      )}
+
+      {enlargedImage && (
+        <div className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setEnlargedImage(null)}>
+          <button className="absolute top-8 right-8 text-white/50 hover:text-white"><X size={40} /></button>
+          <img src={enlargedImage} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" alt="확대" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+
       {showLoginModal && (
         <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-sm rounded-[32px] p-8 shadow-2xl">
-            <h3 className="text-xl font-black text-gray-900 mb-6 text-center">관리자 로그인</h3>
+          <div className="bg-white w-full max-w-sm rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95">
+            <h3 className="text-2xl font-black text-gray-900 mb-8 text-center">관리자 로그인</h3>
             <form onSubmit={handleLoginSubmit} className="space-y-4">
-              <input autoFocus type="password" className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-black text-gray-900 text-center" placeholder="비밀번호" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
-              <button type="submit" className="w-full py-4 bg-[#ff8a3d] text-white rounded-2xl font-black shadow-lg">접속</button>
-              <button type="button" onClick={() => setShowLoginModal(false)} className="w-full py-2 text-gray-400 font-bold text-sm">취소</button>
+              <input autoFocus type="password" className="w-full p-5 bg-gray-50 border border-gray-100 rounded-2xl font-black text-gray-900 text-center text-xl outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="비밀번호" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
+              <button type="submit" className="w-full py-5 bg-[#ff8a3d] text-white rounded-2xl font-black shadow-xl shadow-orange-100 text-lg hover:scale-105 transition-all">접속하기</button>
+              <button type="button" onClick={() => setShowLoginModal(false)} className="w-full text-gray-400 font-bold text-sm text-center block mt-2">취소</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showInquiryForm && (
+        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowInquiryForm(false)}>
+          <div className="bg-white w-full max-w-2xl h-full max-h-[80vh] rounded-[48px] shadow-2xl overflow-hidden relative flex flex-col p-10 md:p-16 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowInquiryForm(false)} className="absolute top-8 right-8 p-3 bg-gray-50 rounded-full text-gray-400 hover:text-gray-900"><X size={24} /></button>
+            <h2 className="text-3xl font-black mb-8 text-center">상담 신청</h2>
+            <form onSubmit={handleInquirySubmit} className="space-y-4 overflow-y-auto">
+              <input required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="성함" value={inquiryInput.name} onChange={e => setInquiryInput({...inquiryInput, name: e.target.value})} />
+              <input required className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="연락처" value={inquiryInput.phone} onChange={e => setInquiryInput({...inquiryInput, phone: e.target.value})} />
+              <textarea required className="w-full p-4 h-32 bg-gray-50 border border-gray-100 rounded-2xl font-bold resize-none outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="문의 내용" value={inquiryInput.message} onChange={e => setInquiryInput({...inquiryInput, message: e.target.value})} />
+              <button type="submit" className="w-full py-5 bg-[#ff8a3d] text-white rounded-2xl font-black text-xl active:scale-95 transition-all shadow-xl shadow-orange-100">신청하기</button>
             </form>
           </div>
         </div>

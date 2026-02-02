@@ -1,0 +1,21 @@
+
+{
+  "projects": [
+    {
+      "id": "karrot-1",
+      "title": "대치 푸르지오 써밋 - 프리미엄 모던 하우스",
+      "category": "Apartment",
+      "location": "서울시 강남구 대치동",
+      "area": "45평 (148㎡)",
+      "description": "당근 인테리어의 정체성이 담긴 하이엔드 주거 프로젝트입니다. \n\n전체적으로 화이트 베이스에 직선적인 라인 조명을 활용하여 공간의 확장감을 주었으며, 거실 아트월에는 천연 대리석을 시공하여 고급스러움을 더했습니다.",
+      "mainImage": "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&q=80&w=1200",
+      "gallery": [
+        "https://images.unsplash.com/photo-1600607687940-4e524cb35a36?auto=format&fit=crop&q=80&w=1200"
+      ],
+      "createdAt": 1710000000000,
+      "status": "published",
+      "order": 1
+    }
+  ],
+  "inquiries": []
+}

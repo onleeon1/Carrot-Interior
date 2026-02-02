@@ -10,7 +10,7 @@ export interface Project {
   gallery: string[];
   createdAt: number;
   status: 'draft' | 'published';
-  order: number; // 전시 순서 (낮을수록 앞에 노출)
+  order: number;
 }
 
 export interface Inquiry {
@@ -26,7 +26,15 @@ export interface Inquiry {
   createdAt: number;
 }
 
+export interface GithubConfig {
+  owner: string;
+  repo: string;
+  branch: string;
+  token: string;
+}
+
 export interface AppData {
   projects: Project[];
   inquiries: Inquiry[];
+  githubConfig?: GithubConfig;
 }

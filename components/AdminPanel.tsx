@@ -1,43 +1,97 @@
 
-import React, { useState, useRef } from 'react';
-import { Project, Inquiry } from '../types';
-import { CATEGORY_LABELS } from '../constants';
-import { Plus, Edit3, Trash2, Eye, Layout, FileText, ChevronLeft, Upload, Download, RefreshCw, Phone, Calendar, ArrowRight, User, Wallet, Home, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Project, Inquiry, GithubConfig, AppData } from '../types';
+import { Plus, Edit3, Trash2, Layout, FileText, ChevronLeft, Upload, Settings, Github, Loader2, Save, ChevronUp, ChevronDown, Globe, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface AdminPanelProps {
   projects: Project[];
   inquiries: Inquiry[];
-  onAdd: (project: Project) => void;
-  onUpdate: (project: Project) => void;
-  onDelete: (id: string) => void;
-  onImport: (projects: Project[]) => void;
-  onReorder: (projects: Project[]) => void;
-  onDeleteInquiry: (id: string) => void;
+  isSaving: boolean;
+  onSaveAll: (newData: AppData, githubConfig: GithubConfig) => void;
   onClose: () => void;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onAdd, onUpdate, onDelete, onImport, onReorder, onDeleteInquiry, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'portfolio' | 'inquiries'>('portfolio');
+export const AdminPanel: React.FC<AdminPanelProps> = ({ projects: initialProjects, inquiries: initialInquiries, isSaving, onSaveAll, onClose }) => {
+  const [activeTab, setActiveTab] = useState<'portfolio' | 'inquiries' | 'settings'>('portfolio');
+  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [inquiries, setInquiries] = useState<Inquiry[]>(initialInquiries);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  
+  const [githubConfig, setGithubConfig] = useState<GithubConfig>(() => {
+    const saved = localStorage.getItem('github_config');
+    return saved ? JSON.parse(saved) : { owner: '', repo: '', branch: 'main', token: '' };
+  });
 
-  const handleSave = (e: React.FormEvent) => {
+  useEffect(() => {
+    localStorage.setItem('github_config', JSON.stringify(githubConfig));
+  }, [githubConfig]);
+
+  // GitHub 연결 상태 테스트 기능
+  const testConnection = async () => {
+    if (!githubConfig.token || !githubConfig.owner || !githubConfig.repo) {
+      setTestResult({ success: false, message: '모든 설정을 입력해주세요.' });
+      return;
+    }
+
+    setIsTesting(true);
+    setTestResult(null);
+
+    try {
+      const res = await fetch(`https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}`, {
+        headers: { 'Authorization': `token ${githubConfig.token}` }
+      });
+      
+      if (res.ok) {
+        setTestResult({ success: true, message: '연결 성공! 저장소에 접근 가능합니다.' });
+      } else {
+        const err = await res.json();
+        setTestResult({ success: false, message: `연결 실패: ${err.message}` });
+      }
+    } catch (e: any) {
+      setTestResult({ success: false, message: '네트워크 오류가 발생했습니다.' });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const autoDetectConfig = () => {
+    const hostname = window.location.hostname;
+    const pathname = window.location.pathname;
+    
+    if (hostname.includes('github.io')) {
+      const owner = hostname.split('.')[0];
+      const repo = pathname.split('/')[1] || '';
+      setGithubConfig({ ...githubConfig, owner, repo: repo.replace(/\/$/, '') });
+      setTestResult(null);
+      alert('접속하신 주소에서 정보를 가져왔습니다. 토큰만 입력하고 연결 테스트를 눌러주세요.');
+    } else {
+      alert('GitHub Pages 환경에서만 자동 감지가 가능합니다. 수동으로 입력해주세요.');
+    }
+  };
+
+  const handleGlobalSave = () => {
+    onSaveAll({ projects, inquiries }, githubConfig);
+  };
+
+  const handleProjectSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingProject) {
-      if (projects.find(p => p.id === editingProject.id)) {
-        onUpdate(editingProject);
+      const exists = projects.find(p => p.id === editingProject.id);
+      if (exists) {
+        setProjects(projects.map(p => p.id === editingProject.id ? editingProject : p));
       } else {
-        onAdd(editingProject);
+        setProjects([editingProject, ...projects]);
       }
       setEditingProject(null);
     }
   };
 
-  const handleNew = () => {
+  const handleNewProject = () => {
     const maxOrder = Math.max(0, ...projects.map(p => p.order));
-    const newProj: Project = {
+    setEditingProject({
       id: Math.random().toString(36).substr(2, 9),
       title: '',
       category: 'Apartment',
@@ -47,33 +101,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
       mainImage: '',
       gallery: [],
       createdAt: Date.now(),
-      status: 'draft',
+      status: 'published',
       order: maxOrder + 1
-    };
-    setEditingProject(newProj);
+    });
   };
 
   const handleMove = (index: number, direction: 'up' | 'down') => {
     const newProjects = [...projects];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    
     if (targetIndex < 0 || targetIndex >= newProjects.length) return;
-
-    // Swap order values
-    const tempOrder = newProjects[index].order;
+    
+    const temp = newProjects[index].order;
     newProjects[index].order = newProjects[targetIndex].order;
-    newProjects[targetIndex].order = tempOrder;
-
-    // Sort to keep local state clean and notify parent
-    onReorder(newProjects.sort((a, b) => a.order - b.order));
+    newProjects[targetIndex].order = temp;
+    
+    setProjects([...newProjects].sort((a, b) => a.order - b.order));
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isGallery: boolean = false) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !editingProject) return;
-
-    setIsUploading(true);
     
+    setIsUploading(true);
     const readAsDataURL = (file: File): Promise<string> => {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -86,381 +135,222 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ projects, inquiries, onA
       if (isGallery) {
         const fileList = Array.from(files) as File[];
         const base64Images = await Promise.all(fileList.map(file => readAsDataURL(file)));
-        setEditingProject({
-          ...editingProject,
-          gallery: [...editingProject.gallery, ...base64Images]
-        });
+        setEditingProject({ ...editingProject, gallery: [...editingProject.gallery, ...base64Images] });
       } else {
         const base64 = await readAsDataURL(files[0]);
         setEditingProject({ ...editingProject, mainImage: base64 });
       }
     } catch (err) {
-      console.error("Image upload failed", err);
-      alert("이미지 처리 중 오류가 발생했습니다.");
+      alert("이미지 처리 오류");
     } finally {
       setIsUploading(false);
       e.target.value = '';
     }
   };
 
-  const exportToJson = () => {
-    const dataStr = JSON.stringify({ projects, inquiries }, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    const exportFileDefaultName = `portfolio_backup_${new Date().toISOString().split('T')[0]}.json`;
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
-  };
-
-  const importFromJson = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const json = JSON.parse(event.target?.result as string);
-          if (json && Array.isArray(json.projects)) {
-            if (confirm('서버 데이터를 JSON 파일 내용으로 덮어쓰시겠습니까?')) {
-              onImport(json.projects);
-              alert('데이터를 성공적으로 불러왔습니다.');
-            }
-          } else {
-            alert('올바른 JSON 형식이 아닙니다.');
-          }
-        } catch (err) {
-          alert('파일을 읽는 중 오류가 발생했습니다.');
-        }
-      };
-      reader.readAsText(file);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-[120] bg-white flex flex-col md:flex-row h-screen overflow-hidden text-gray-900">
-      {/* Sidebar */}
+    <div className="fixed inset-0 z-[120] bg-white flex flex-col md:flex-row h-screen overflow-hidden text-gray-900 animate-in fade-in duration-300">
       <div className="w-full md:w-64 bg-gray-900 text-white flex flex-col">
         <div className="p-6 border-b border-gray-800 flex items-center justify-between">
           <span className="font-bold text-xl flex items-center gap-2">
             <span className="text-[#ff8a3d]">🥕</span> 관리자
           </span>
-          <button onClick={onClose} className="md:hidden text-gray-400 hover:text-white">
-            <ChevronLeft size={24} />
-          </button>
+          <button onClick={onClose} className="md:hidden text-gray-400"><ChevronLeft size={24} /></button>
         </div>
+        
         <nav className="flex-grow p-4 space-y-2">
-          <div className="text-xs font-bold text-gray-500 px-4 mb-2 uppercase tracking-widest">Main</div>
-          <button 
-            onClick={() => setActiveTab('portfolio')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeTab === 'portfolio' ? 'bg-[#ff8a3d] text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
-          >
-            <Layout size={20} /> 포트폴리오 관리
-          </button>
-          <button 
-            onClick={() => setActiveTab('inquiries')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeTab === 'inquiries' ? 'bg-[#ff8a3d] text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
-          >
-            <FileText size={20} /> 상담 문의 내역
-            {inquiries.length > 0 && (
-              <span className="ml-auto bg-white text-[#ff8a3d] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                {inquiries.length}
-              </span>
-            )}
-          </button>
-
-          <div className="pt-6">
-            <div className="text-xs font-bold text-gray-500 px-4 mb-2 uppercase tracking-widest">Database (JSON)</div>
-            <button 
-              onClick={exportToJson}
-              className="w-full flex items-center gap-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-xl transition-colors text-sm"
-            >
-              <Download size={18} /> 백업 내보내기
-            </button>
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center gap-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-xl transition-colors text-sm"
-            >
-              <RefreshCw size={18} /> 백업 가져오기
-            </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={importFromJson} 
-              className="hidden" 
-              accept=".json"
-            />
-          </div>
+          <button onClick={() => setActiveTab('portfolio')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeTab === 'portfolio' ? 'bg-[#ff8a3d] text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><Layout size={20} /> 포트폴리오</button>
+          <button onClick={() => setActiveTab('inquiries')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeTab === 'inquiries' ? 'bg-[#ff8a3d] text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><FileText size={20} /> 상담 내역</button>
+          <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeTab === 'settings' ? 'bg-[#ff8a3d] text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><Settings size={20} /> GitHub 설정</button>
         </nav>
-        <div className="p-4 border-t border-gray-800">
+
+        <div className="p-4 space-y-2 border-t border-gray-800">
           <button 
-            onClick={onClose}
-            className="w-full py-3 bg-gray-800 text-gray-300 rounded-xl hover:text-white transition-colors text-sm font-medium"
+            onClick={handleGlobalSave}
+            disabled={isSaving}
+            className="w-full py-4 bg-white text-gray-900 rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-gray-100 transition-all disabled:opacity-50"
           >
-            대시보드 나가기
+            {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+            GitHub에 배포
           </button>
+          <button onClick={onClose} className="w-full py-2 text-gray-500 font-bold text-sm">홈페이지로</button>
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-grow overflow-y-auto bg-gray-50 p-6 md:p-10">
-        {!editingProject ? (
+        {activeTab === 'portfolio' && !editingProject && (
           <div className="max-w-5xl mx-auto">
-            {activeTab === 'portfolio' ? (
-              <>
-                <div className="flex justify-between items-center mb-10">
-                  <div>
-                    <h2 className="text-3xl font-bold text-gray-900">포트폴리오 리스트</h2>
-                    <p className="text-gray-500 mt-1">총 {projects.length}개의 프로젝트가 등록되어 있습니다. (전시 순서대로 표시)</p>
-                  </div>
-                  <button 
-                    onClick={handleNew}
-                    className="flex items-center gap-2 bg-[#ff8a3d] text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-orange-100 hover:scale-105 active:scale-95 transition-all"
-                  >
-                    <Plus size={20} /> 새 프로젝트 작성
-                  </button>
-                </div>
-
-                <div className="grid gap-4">
-                  {projects.map((p, index) => (
-                    <div key={p.id} className="bg-white p-5 rounded-2xl border border-gray-100 flex items-center justify-between group hover:shadow-xl hover:shadow-gray-100 transition-all">
-                      <div className="flex items-center gap-4">
-                        <div className="flex flex-col gap-1">
-                           <button 
-                             disabled={index === 0}
-                             onClick={() => handleMove(index, 'up')}
-                             className={`p-1 rounded-md transition-colors ${index === 0 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100 hover:text-orange-500'}`}
-                           >
-                             <ChevronUp size={18} />
-                           </button>
-                           <button 
-                             disabled={index === projects.length - 1}
-                             onClick={() => handleMove(index, 'down')}
-                             className={`p-1 rounded-md transition-colors ${index === projects.length - 1 ? 'text-gray-200' : 'text-gray-400 hover:bg-gray-100 hover:text-orange-500'}`}
-                           >
-                             <ChevronDown size={18} />
-                           </button>
-                        </div>
-                        <img src={p.mainImage || 'https://picsum.photos/100/100'} className="w-16 h-16 rounded-xl object-cover bg-gray-100" />
-                        <div>
-                          <h3 className="font-bold text-gray-900 group-hover:text-[#ff8a3d] transition-colors">{p.title || '제목 없음'}</h3>
-                          <div className="flex gap-2 text-xs font-medium mt-1">
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-md">{CATEGORY_LABELS[p.category] || p.category}</span>
-                            <span className={`px-2 py-0.5 rounded-md ${p.status === 'published' ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'}`}>
-                              {p.status === 'published' ? '게시됨' : '초안'}
-                            </span>
-                            <span className="px-2 py-0.5 bg-gray-50 text-gray-400 rounded-md">순번: {p.order}</span>
-                          </div>
-                        </div>
+             <div className="flex justify-between items-center mb-10">
+                <h2 className="text-3xl font-black">포트폴리오 관리</h2>
+                <button onClick={handleNewProject} className="bg-[#ff8a3d] text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-orange-100 hover:scale-105 transition-all flex items-center gap-2"><Plus size={20} /> 새 포트폴리오</button>
+             </div>
+             <div className="grid gap-4">
+                {projects.map((p, idx) => (
+                  <div key={p.id} className="bg-white p-5 rounded-3xl border border-gray-100 flex items-center justify-between group shadow-sm hover:shadow-md transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="flex flex-col gap-1">
+                         <button onClick={() => handleMove(idx, 'up')} className="p-1 text-gray-300 hover:text-[#ff8a3d]"><ChevronUp size={18} /></button>
+                         <button onClick={() => handleMove(idx, 'down')} className="p-1 text-gray-300 hover:text-[#ff8a3d]"><ChevronDown size={18} /></button>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setEditingProject(p)} className="p-3 text-gray-400 hover:text-[#ff8a3d] hover:bg-orange-50 rounded-xl transition-all">
-                          <Edit3 size={20} />
-                        </button>
-                        <button onClick={() => onDelete(p.id)} className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-                          <Trash2 size={20} />
-                        </button>
+                      <img src={p.mainImage} className="w-20 h-20 rounded-2xl object-cover bg-gray-100 shadow-inner" />
+                      <div>
+                        <h3 className="font-black text-gray-900 text-lg">{p.title || '제목 없음'}</h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-[#ff8a3d] font-black px-2 py-0.5 bg-orange-50 rounded-full uppercase">{p.category}</span>
+                          <span className="text-[10px] text-gray-400 font-bold">{p.area} | {p.location}</span>
+                        </div>
                       </div>
                     </div>
-                  ))}
+                    <div className="flex gap-2">
+                       <button onClick={() => setEditingProject(p)} className="p-4 text-gray-400 hover:text-[#ff8a3d] hover:bg-orange-50 rounded-2xl transition-all"><Edit3 size={20} /></button>
+                       <button onClick={() => setProjects(projects.filter(pj => pj.id !== p.id))} className="p-4 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"><Trash2 size={20} /></button>
+                    </div>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
+
+        {editingProject && (
+          <div className="max-w-4xl mx-auto bg-white rounded-[40px] shadow-2xl overflow-hidden flex flex-col h-full animate-in slide-in-from-right duration-300">
+             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
+               <button onClick={() => setEditingProject(null)} className="p-3 hover:bg-gray-100 rounded-full"><ChevronLeft size={24} /></button>
+               <button onClick={handleProjectSave} className="px-8 py-3 bg-gray-900 text-white rounded-2xl font-black hover:bg-black transition-all">변경사항 저장</button>
+             </div>
+             <div className="flex-grow overflow-y-auto p-10 space-y-10">
+                <div className="space-y-4">
+                   <label className="text-sm font-black text-gray-400 uppercase tracking-widest">대표 이미지</label>
+                   <div className="relative group cursor-pointer h-[400px] bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-200 flex flex-col items-center justify-center overflow-hidden hover:border-[#ff8a3d] transition-all">
+                      {editingProject.mainImage ? <img src={editingProject.mainImage} className="w-full h-full object-cover" /> : <div className="text-center"><Upload className="text-gray-300 mx-auto mb-2" size={48} /><p className="text-gray-400 font-bold">이미지 업로드</p></div>}
+                      <input type="file" onChange={(e) => handleImageUpload(e)} className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" />
+                      {isUploading && <div className="absolute inset-0 bg-white/60 flex items-center justify-center"><Loader2 className="animate-spin text-[#ff8a3d]" size={40} /></div>}
+                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="max-w-5xl mx-auto">
-                <div className="mb-10">
-                  <h2 className="text-3xl font-bold text-gray-900">상담 문의 내역</h2>
-                  <p className="text-gray-500 mt-1">고객님들이 남겨주신 소중한 상담 신청 정보입니다.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-400 uppercase">제목</label>
+                    <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-[#ff8a3d]" value={editingProject.title} onChange={e => setEditingProject({...editingProject, title: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-400 uppercase">카테고리</label>
+                    <select className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-[#ff8a3d]" value={editingProject.category} onChange={e => setEditingProject({...editingProject, category: e.target.value as any})}>
+                      <option value="Apartment">아파트</option><option value="Villa">빌라/주택</option><option value="Commercial">상가</option><option value="Office">오피스</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-400 uppercase">면적</label>
+                    <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="예: 32평 (105㎡)" value={editingProject.area} onChange={e => setEditingProject({...editingProject, area: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-gray-400 uppercase">위치</label>
+                    <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-[#ff8a3d]" placeholder="예: 서울시 강남구" value={editingProject.location} onChange={e => setEditingProject({...editingProject, location: e.target.value})} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase">상세 설명</label>
+                  <textarea className="w-full p-6 h-64 bg-gray-50 border border-gray-100 rounded-3xl font-medium resize-none outline-none focus:ring-2 focus:ring-[#ff8a3d]" value={editingProject.description} onChange={e => setEditingProject({...editingProject, description: e.target.value})} />
+                </div>
+                <div className="space-y-4">
+                   <label className="text-sm font-black text-gray-400 uppercase">갤러리 사진</label>
+                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {editingProject.gallery.map((img, i) => (
+                        <div key={i} className="relative group aspect-square rounded-2xl overflow-hidden shadow-inner bg-gray-100">
+                          <img src={img} className="w-full h-full object-cover" />
+                          <button onClick={() => setEditingProject({...editingProject, gallery: editingProject.gallery.filter((_, idx) => idx !== i)})} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"><Trash2 size={14} /></button>
+                        </div>
+                      ))}
+                      <label className="aspect-square bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-[#ff8a3d] transition-all">
+                        <Plus className="text-gray-300" />
+                        <span className="text-[10px] text-gray-400 font-bold mt-1">사진 추가</span>
+                        <input type="file" multiple onChange={(e) => handleImageUpload(e, true)} className="hidden" accept="image/*" />
+                      </label>
+                   </div>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {activeTab === 'inquiries' && (
+          <div className="max-w-5xl mx-auto">
+             <h2 className="text-3xl font-black mb-10">상담 문의 내역</h2>
+             <div className="space-y-4">
+                {inquiries.length === 0 && <p className="text-center py-20 text-gray-400 font-bold">문의 내역이 없습니다.</p>}
+                {inquiries.map(i => (
+                  <div key={i.id} className="bg-white p-8 rounded-3xl shadow-sm border border-gray-50">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-xl font-black text-gray-900">{i.name} 고객님</h3>
+                        <p className="text-[#ff8a3d] font-bold text-sm">{i.phone}</p>
+                      </div>
+                      <span className="text-xs text-gray-400 font-bold">{new Date(i.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className="bg-gray-50 p-6 rounded-2xl mb-4">
+                      <p className="text-gray-700 whitespace-pre-wrap font-medium">{i.message}</p>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-black px-3 py-1 bg-gray-100 text-gray-500 rounded-full">{i.projectTitle || '일반 상담'}</span>
+                      <button onClick={() => setInquiries(inquiries.filter(iq => iq.id !== i.id))} className="text-red-500 text-sm font-bold flex items-center gap-1"><Trash2 size={16} /> 내역 삭제</button>
+                    </div>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <div className="max-w-2xl mx-auto bg-white p-10 rounded-[40px] shadow-sm border border-gray-50 animate-in zoom-in-95">
+             <div className="flex items-center justify-between mb-8">
+               <div className="flex items-center gap-3">
+                 <div className="p-3 bg-gray-900 text-white rounded-2xl"><Github size={24} /></div>
+                 <h2 className="text-2xl font-black">GitHub 설정</h2>
+               </div>
+               <button 
+                onClick={autoDetectConfig}
+                className="text-xs font-bold text-[#ff8a3d] bg-orange-50 px-3 py-2 rounded-xl flex items-center gap-1 hover:bg-orange-100 transition-all"
+               >
+                 <Globe size={14} /> 현재 페이지에서 자동 감지
+               </button>
+             </div>
+             
+             <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase">GitHub 아이디 (Owner)</label>
+                  <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold" placeholder="예: gildong" value={githubConfig.owner} onChange={e => {setGithubConfig({...githubConfig, owner: e.target.value}); setTestResult(null);}} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase">저장소 이름 (Repo)</label>
+                  <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold" placeholder="예: interior-portfolio" value={githubConfig.repo} onChange={e => {setGithubConfig({...githubConfig, repo: e.target.value}); setTestResult(null);}} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase">Personal Access Token</label>
+                  <input type="password" className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold" placeholder="ghp_..." value={githubConfig.token} onChange={e => {setGithubConfig({...githubConfig, token: e.target.value}); setTestResult(null);}} />
                 </div>
                 
-                <div className="space-y-8">
-                  {inquiries.map(inquiry => (
-                    <div key={inquiry.id} className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm hover:shadow-xl transition-all">
-                      <div className="flex justify-between items-start mb-8">
-                        <div className="flex items-center gap-5">
-                          <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center text-[#ff8a3d]">
-                            <User size={28} />
-                          </div>
-                          <div>
-                            <h4 className="font-black text-2xl text-gray-900">{inquiry.name} <span className="text-sm font-bold text-gray-400 ml-1">고객님</span></h4>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-bold">
-                              <span className="flex items-center gap-1"><Phone size={14} className="text-gray-300" /> {inquiry.phone}</span>
-                              <span className="flex items-center gap-1"><Calendar size={14} className="text-gray-300" /> {new Date(inquiry.createdAt).toLocaleString()}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <button onClick={() => onDeleteInquiry(inquiry.id)} className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all">
-                          <Trash2 size={20} />
-                        </button>
-                      </div>
-                      
-                      <div className="grid md:grid-cols-3 gap-4 mb-8">
-                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                          <div className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest flex items-center gap-1">
-                             <Home size={10} /> 공간 유형
-                          </div>
-                          <div className="font-bold text-gray-800">{CATEGORY_LABELS[inquiry.category || ''] || inquiry.category || '미지정'}</div>
-                        </div>
-                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                          <div className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest flex items-center gap-1">
-                             <Wallet size={10} /> 예상 예산
-                          </div>
-                          <div className="font-bold text-gray-800">{inquiry.budget || '미지정'}</div>
-                        </div>
-                        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                          <div className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest flex items-center gap-1">
-                             <Calendar size={10} /> 시공 희망일
-                          </div>
-                          <div className="font-bold text-gray-800">{inquiry.desiredDate || '미지정'}</div>
-                        </div>
-                      </div>
-
-                      <div className="bg-orange-50/20 p-6 rounded-3xl mb-4 border border-orange-50/50">
-                        <div className="text-[10px] font-black text-[#ff8a3d] mb-3 uppercase tracking-widest flex items-center gap-1">
-                           <ArrowRight size={10} /> 상담 요청 내용
-                        </div>
-                        <div className="font-bold text-gray-900 leading-relaxed whitespace-pre-wrap">
-                          {inquiry.message || '남겨주신 메시지가 없습니다.'}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-[10px] font-black text-gray-300 uppercase tracking-widest pl-2">
-                        접수 경로: <span className="text-gray-400">{inquiry.projectTitle || '전역 상담 신청'}</span>
-                      </div>
-                    </div>
-                  ))}
-                  {inquiries.length === 0 && (
-                    <div className="text-center py-24 bg-white rounded-[40px] border-2 border-dashed border-gray-100 text-gray-300 font-bold">
-                      아직 접수된 상담 내역이 없습니다.
+                <div className="flex flex-col gap-4">
+                  <button 
+                    onClick={testConnection}
+                    disabled={isTesting}
+                    className="w-full py-4 bg-gray-100 text-gray-900 rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-gray-200 transition-all disabled:opacity-50"
+                  >
+                    {isTesting ? <RefreshCw size={20} className="animate-spin text-gray-400" /> : <Github size={20} />}
+                    연결 상태 테스트
+                  </button>
+                  
+                  {testResult && (
+                    <div className={`p-4 rounded-2xl flex items-center gap-3 animate-in fade-in duration-300 ${testResult.success ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
+                      {testResult.success ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+                      <span className="text-sm font-bold">{testResult.message}</span>
                     </div>
                   )}
                 </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col h-full animate-in slide-in-from-right duration-300">
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
-              <div className="flex items-center gap-4">
-                <button onClick={() => setEditingProject(null)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                  <ChevronLeft size={24} />
-                </button>
-                <h3 className="text-xl font-bold text-gray-900">프로젝트 {editingProject.id.includes('.') ? '추가' : '편집'}</h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setIsPreviewMode(!isPreviewMode)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all ${isPreviewMode ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
-                  <Eye size={18} /> {isPreviewMode ? '편집으로 돌아가기' : '미리보기'}
-                </button>
-                {!isPreviewMode && (
-                  <button onClick={handleSave} className="px-6 py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-800 transition-all">
-                    저장하기
-                  </button>
-                )}
-              </div>
-            </div>
 
-            <div className="flex-grow overflow-y-auto">
-              {isPreviewMode ? (
-                <div className="p-10 animate-in fade-in duration-500">
-                  <span className="inline-block px-3 py-1 bg-orange-100 text-orange-600 rounded-lg text-sm font-bold mb-4">{CATEGORY_LABELS[editingProject.category]}</span>
-                  <h1 className="text-4xl font-bold text-gray-900 mb-6">{editingProject.title || '제목을 입력해주세요'}</h1>
-                  <img src={editingProject.mainImage || 'https://picsum.photos/1200/600'} className="w-full h-[400px] object-cover rounded-3xl mb-10 shadow-lg" />
-                  <p className="text-lg text-gray-800 leading-relaxed whitespace-pre-wrap font-medium">{editingProject.description}</p>
+                <div className="p-6 bg-orange-50 rounded-3xl border border-orange-100">
+                  <p className="text-xs text-orange-700 font-bold leading-relaxed">
+                    * 설정 후 상단 'GitHub에 배포'를 누르면 즉시 저장소에 파일이 생성됩니다.<br/>
+                    * 토큰은 반드시 'repo' 권한이 포함된 Classic Token을 사용하세요.
+                  </p>
                 </div>
-              ) : (
-                <form className="p-10 space-y-8">
-                  <div className="space-y-4">
-                    <label className="text-sm font-bold text-gray-700">대표 이미지 설정 (단일)</label>
-                    <div className="relative group cursor-pointer h-[300px] bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center overflow-hidden hover:border-[#ff8a3d] transition-colors">
-                      {editingProject.mainImage ? (
-                        <>
-                          <img src={editingProject.mainImage} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-bold">이미지 변경</div>
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="text-gray-300 mb-2" size={40} />
-                          <span className="text-gray-400 font-medium">대표 이미지를 업로드하세요</span>
-                        </>
-                      )}
-                      <input type="file" onChange={(e) => handleImageUpload(e)} className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" />
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-gray-700">프로젝트 제목</label>
-                      <input className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-orange-500 transition-all outline-none text-gray-900 font-bold" placeholder="예: 한남 더 힐 모던 리모델링" value={editingProject.title} onChange={e => setEditingProject({...editingProject, title: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-gray-700">카테고리</label>
-                      <select className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-orange-500 transition-all outline-none text-gray-900 font-bold" value={editingProject.category} onChange={e => setEditingProject({...editingProject, category: e.target.value as any})}>
-                        {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                          <option key={key} value={key}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-gray-700">위치</label>
-                      <input className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-orange-500 transition-all outline-none text-gray-900 font-bold" placeholder="예: 서울시 강남구" value={editingProject.location} onChange={e => setEditingProject({...editingProject, location: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-gray-700">면적 (평수)</label>
-                      <input className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-orange-500 transition-all outline-none text-gray-900 font-bold" placeholder="예: 34평 (112㎡)" value={editingProject.area} onChange={e => setEditingProject({...editingProject, area: e.target.value})} />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-gray-700">상세 설명</label>
-                    <textarea className="w-full p-4 h-64 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-orange-500 transition-all outline-none resize-none text-gray-900 font-medium" placeholder="시공 내용과 컨셉을 적어주세요." value={editingProject.description} onChange={e => setEditingProject({...editingProject, description: e.target.value})} />
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-bold text-gray-700">갤러리 이미지 추가 (다중 선택 가능)</label>
-                      {isUploading && <span className="text-xs font-bold text-[#ff8a3d] animate-pulse">이미지 처리 중...</span>}
-                    </div>
-                    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-4">
-                      {editingProject.gallery.map((img, idx) => (
-                        <div key={idx} className="relative aspect-square group">
-                          <img src={img} className="w-full h-full object-cover rounded-xl border border-gray-100" />
-                          <button type="button" onClick={() => {
-                            const newGal = [...editingProject.gallery];
-                            newGal.splice(idx, 1);
-                            setEditingProject({...editingProject, gallery: newGal});
-                          }} className="absolute -top-2 -right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      ))}
-                      <label className="relative aspect-square bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center hover:border-orange-500 hover:bg-orange-50 transition-all cursor-pointer">
-                        <Plus className="text-gray-300" />
-                        <span className="text-[10px] text-gray-400 font-bold mt-1">추가</span>
-                        <input 
-                          type="file" 
-                          multiple 
-                          onChange={(e) => handleImageUpload(e, true)} 
-                          className="absolute inset-0 opacity-0 cursor-pointer" 
-                          accept="image/*" 
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-6 pt-4 pb-10 border-t border-gray-100">
-                     <label className="flex items-center gap-2 cursor-pointer text-gray-900 font-bold">
-                        <input type="radio" className="w-5 h-5 accent-[#ff8a3d]" checked={editingProject.status === 'published'} onChange={() => setEditingProject({...editingProject, status: 'published'})} />
-                        즉시 게시하기
-                     </label>
-                     <label className="flex items-center gap-2 cursor-pointer text-gray-900 font-bold">
-                        <input type="radio" className="w-5 h-5 accent-[#ff8a3d]" checked={editingProject.status === 'draft'} onChange={() => setEditingProject({...editingProject, status: 'draft'})} />
-                        임시 저장 (숨김)
-                     </label>
-                  </div>
-                </form>
-              )}
-            </div>
+             </div>
           </div>
         )}
       </div>
